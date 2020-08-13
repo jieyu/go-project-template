@@ -220,6 +220,10 @@ host.test: $(BUILD_DIRS)
 $(BUILD_DIRS):
 	@mkdir -p $@
 
+host.lint:
+	@pre-commit run -a
+
+cover: # @HELP generate go coverage report (run 'make test' first)
 cover:
 	@go tool cover -html=.go/cover.out
 

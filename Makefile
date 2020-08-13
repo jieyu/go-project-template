@@ -8,7 +8,7 @@ ALL_PLATFORMS := linux/amd64 linux/arm64
 
 # Non public Go modules
 # E.g., GOPRIVATE=*.corp.example.com,rsc.io/private
-GOPRIVATE ?= 
+GOPRIVATE ?=
 
 #####################################################################
 # The following variables should not require tweaking.

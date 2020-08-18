@@ -1,7 +1,7 @@
 GITHUB_ORG ?= jieyu
 GITHUB_REPO ?= go-project-template
 
-DOCKER_REGISTRY_ORG ?= jieyu
+DOCKER_REGISTRY ?= jieyu
 
 # Platforms to build the binaries for.
 ALL_PLATFORMS := linux/amd64 linux/arm64
@@ -25,6 +25,9 @@ BINS := $(shell ls cmd/)
 # Golang related.
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
+GO_DEV_DIR := .go
+GOPATH_DIR := $(GO_DEV_DIR)/gopath
+GOCACHE_DIR := $(GO_DEV_DIR)/cache
 
 # Git related.
 GIT_COMMIT := $(shell git rev-parse "HEAD^{commit}")
@@ -36,6 +39,8 @@ TAG := $(GIT_VERSION)__$(GOOS)_$(GOARCH)
 BASE_IMAGE ?= gcr.io/distroless/static
 BUILD_IMAGE ?= golang:1.14-buster
 
+# Other constants.
+
 #####################################################################
 # Build rules.
 #####################################################################
@@ -46,16 +51,14 @@ export GOPRIVATE
 .DEFAULT_GOAL := all
 
 # Directories that we need created to build/test.
-BUILD_DIRS :=               \
-  bin/$(GOOS)_$(GOARCH)     \
-  .go/cache                 \
-  .go/gopath                \
+BUILD_DIRS :=            \
+  bin/$(GOOS)_$(GOARCH)  \
+  $(GOPATH_DIR)          \
+  $(GOCACHE_DIR)         \
   .docker
 
-# The following structure defeats Go's (intentional) behavior to always touch
-# result files, even if they have not changed. This will still run `go` but
-# will not trigger further work if nothing has actually changed.
-OUTBINS = $(foreach bin,$(BINS),bin/$(GOOS)_$(GOARCH)/$(bin))
+# All the output binaries.
+OUTBINS := $(foreach bin,$(BINS),bin/$(GOOS)_$(GOARCH)/$(bin))
 
 # If you want to build all binaries, see the 'all-build' rule.
 # If you want to build all containers, see the 'all-container' rule.
@@ -94,18 +97,18 @@ all-push: $(addprefix push-, $(subst /,_, $(ALL_PLATFORMS)))
 
 .PHONY: build
 build:
-	@docker run                       \
-	    -i                            \
-	    --rm                          \
-	    -u $$(id -u):$$(id -g)        \
-	    -v $$(pwd):/src               \
-	    -w /src                       \
-	    -v $$(pwd)/.go/cache:/.cache  \
-	    $(BUILD_IMAGE)                \
-	    /bin/sh -c "                  \
-	        make host.build           \
-	        GOARCH="$(GOARCH)"        \
-		GOOS="$(GOOS)"            \
+	@docker run                            \
+	    -i                                 \
+	    --rm                               \
+	    -u $$(id -u):$$(id -g)             \
+	    -v $$(pwd):/src                    \
+	    -w /src                            \
+	    -v $$(pwd)/$(GOCACHE_DIR):/.cache  \
+	    $(BUILD_IMAGE)                     \
+	    /bin/sh -c "                       \
+	        make host.build                \
+	        GOARCH="$(GOARCH)"             \
+		GOOS="$(GOOS)"                 \
 	    "
 
 host.build: $(OUTBINS)
@@ -118,8 +121,8 @@ $(OUTBINS): $(BUILD_DIRS)
 	GOARCH="$(GOARCH)"                                                  \
 	GOOS="$(GOOS)"                                                      \
 	GOROOT_FINAL="/go"                                                  \
-	GOPATH="$$(pwd)/.go/gopath"                                         \
-	GOCACHE="$$(pwd)/.go/cache"                                         \
+	GOPATH="$$(pwd)/$(GOPATH_DIR)"                                      \
+	GOCACHE="$$(pwd)/$(GOCACHE_DIR)"                                    \
 	CGO_ENABLED=0                                                       \
 	go build                                                            \
 	    -v -o $@                                                        \
@@ -139,27 +142,27 @@ shell: $(BUILD_DIRS)
 	    -w /src                                                 \
 	    -v $$(pwd)/bin/$(GOOS)_$(GOARCH):/go/bin                \
 	    -v $$(pwd)/bin/$(GOOS)_$(GOARCH):/go/bin/$(OS)_$(ARCH)  \
-	    -v $$(pwd)/.go/cache:/.cache                            \
+	    -v $$(pwd)/$(GOCACHE_DIR):/.cache                       \
 	    --env HTTP_PROXY=$(HTTP_PROXY)                          \
 	    --env HTTPS_PROXY=$(HTTPS_PROXY)                        \
 	    $(BUILD_IMAGE)                                          \
 	    /bin/sh $(CMD)
 
-CONTAINER_DOTFILES = $(foreach bin,$(BINS),.docker/container-$(subst /,_,$(DOCKER_REGISTRY_ORG)/$(bin))-$(TAG))
+CONTAINER_DOTFILES = $(foreach bin,$(BINS),.docker/container-$(subst /,_,$(DOCKER_REGISTRY)/$(bin))-$(TAG))
 
-container containers: # @HELP builds containers for one platform ($GOOS/$GOARCH)
-container containers: $(CONTAINER_DOTFILES)
-	@for bin in $(BINS); do                                     \
-	    echo "container: $(DOCKER_REGISTRY_ORG)/$$bin:$(TAG)";  \
+container: # @HELP builds containers for one platform ($GOOS/$GOARCH)
+container: $(CONTAINER_DOTFILES)
+	@for bin in $(BINS); do                                 \
+	    echo "container: $(DOCKER_REGISTRY)/$$bin:$(TAG)";  \
 	done
 
 # Each container-dotfile target can reference a $(BIN) variable.
 # This is done in 2 steps to enable target-specific variables.
-$(foreach bin,$(BINS),$(eval $(strip                                               \
-.docker/container-$(subst /,_,$(DOCKER_REGISTRY_ORG)/$(bin))-$(TAG): BIN = $(bin)  \
+$(foreach bin,$(BINS),$(eval $(strip                                           \
+.docker/container-$(subst /,_,$(DOCKER_REGISTRY)/$(bin))-$(TAG): BIN = $(bin)  \
 )))
-$(foreach bin,$(BINS),$(eval                                                                                  \
-.docker/container-$(subst /,_,$(DOCKER_REGISTRY_ORG)/$(bin))-$(TAG): bin/$(GOOS)_$(GOARCH)/$(bin) Dockerfile  \
+$(foreach bin,$(BINS),$(eval                                                                              \
+.docker/container-$(subst /,_,$(DOCKER_REGISTRY)/$(bin))-$(TAG): bin/$(GOOS)_$(GOARCH)/$(bin) Dockerfile  \
 ))
 
 # This is the target definition for all container-dotfiles.
@@ -170,27 +173,27 @@ $(CONTAINER_DOTFILES): $(BUILD_DIRS)
 	    --build-arg ARCH=$(GOARCH)                 \
 	    --build-arg OS=$(GOOS)                     \
 	    --build-arg BIN=$(BIN)                     \
-	    -t $(DOCKER_REGISTRY_ORG)/$(BIN):$(TAG) .
-	@docker images -q $(DOCKER_REGISTRY_ORG)/$(BIN):$(TAG) > $@
+	    -t $(DOCKER_REGISTRY)/$(BIN):$(TAG) .
+	@docker images -q $(DOCKER_REGISTRY)/$(BIN):$(TAG) > $@
 	@echo
 
 push: # @HELP pushes the container for one platform ($GOOS/$GOARCH) to the defined registry
 push: $(CONTAINER_DOTFILES)
-	@for bin in $(BINS); do                               \
-	    docker push $(DOCKER_REGISTRY_ORG)/$$bin:$(TAG);  \
+	@for bin in $(BINS); do                           \
+	    docker push $(DOCKER_REGISTRY)/$$bin:$(TAG);  \
 	done
 
 manifest-list: # @HELP builds a manifest list of containers for all platforms
 manifest-list: all-push
-	@for bin in $(BINS); do                                                  \
-	    platforms=$$(echo $(ALL_PLATFORMS) | sed 's/ /,/g');                 \
-	    manifest-tool                                                        \
-	        --username=oauth2accesstoken                                     \
-	        --password=$$(gcloud auth print-access-token)                    \
-	        push from-args                                                   \
-	        --platforms "$$platforms"                                        \
-	        --template $(DOCKER_REGISTRY_ORG)/$$bin:$(GIT_VERSION)__OS_ARCH  \
-	        --target $(DOCKER_REGISTRY_ORG)/$$bin:$(GIT_VERSION)
+	@for bin in $(BINS); do                                              \
+	    platforms=$$(echo $(ALL_PLATFORMS) | sed 's/ /,/g');             \
+	    manifest-tool                                                    \
+	        --username=oauth2accesstoken                                 \
+	        --password=$$(gcloud auth print-access-token)                \
+	        push from-args                                               \
+	        --platforms "$$platforms"                                    \
+	        --template $(DOCKER_REGISTRY)/$$bin:$(GIT_VERSION)__OS_ARCH  \
+	        --target $(DOCKER_REGISTRY)/$$bin:$(GIT_VERSION)
 
 version: # @HELP outputs the version string
 version:
@@ -198,34 +201,33 @@ version:
 
 test: # @HELP runs tests, as defined in ./build/test.sh
 test: $(BUILD_DIRS)
-	@docker run                       \
-	    -i                            \
-	    --rm                          \
-	    -u $$(id -u):$$(id -g)        \
-	    -v $$(pwd):/src               \
-	    -w /src                       \
-	    -v $$(pwd)/.go/cache:/.cache  \
-	    $(BUILD_IMAGE)                \
-	    /bin/sh -c "                  \
-	        make host.test            \
+	@docker run                            \
+	    -i                                 \
+	    --rm                               \
+	    -u $$(id -u):$$(id -g)             \
+	    -v $$(pwd):/src                    \
+	    -w /src                            \
+	    -v $$(pwd)/$(GOCACHE_DIR):/.cache  \
+	    $(BUILD_IMAGE)                     \
+	    /bin/sh -c "                       \
+	        make host.test                 \
 	    "
 
 host.test: $(BUILD_DIRS)
-	@                                                         \
-	GOCACHE="$$(pwd)/.go/cache"                               \
-	GOPATH="$$(pwd)/.go/gopath"                               \
-	CGO_ENABLED=0                                             \
-	go test -v -coverprofile .go/cover.out -installsuffix "static" $(SRC_DIRS:%=./%/...)
+	@                                           \
+	GOPATH="$$(pwd)/$(GOPATH_DIR)"              \
+	GOCACHE="$$(pwd)/$(GOCACHE_DIR)"            \
+	CGO_ENABLED=0                               \
+	go test -v                                  \
+	     -coverprofile $(GO_DEV_DIR)/cover.out  \
+	     -installsuffix "static"                \
+	     $(SRC_DIRS:%=./%/...)
 
 $(BUILD_DIRS):
 	@mkdir -p $@
 
-host.lint:
-	@pre-commit run -a
-
-cover: # @HELP generate go coverage report (run 'make test' first)
 cover:
-	@go tool cover -html=.go/cover.out
+	@go tool cover -html=$(GO_DEV_DIR)/cover.out
 
 clean: # @HELP removes built binaries and temporary files
 clean: clean.container clean.go-modcache clean.bin
@@ -234,12 +236,12 @@ clean.container:
 	@rm -rf .docker
 
 clean.go-modcache:
-	@                                                         \
-	GOPATH="$$(pwd)/.go/gopath"                               \
+	@                               \
+	GOPATH="$$(pwd)/$(GOPATH_DIR)"  \
 	go clean -modcache
 
 clean.bin:
-	@rm -rf .go bin
+	@rm -rf $(GO_DEV_DIR) bin
 
 help: # @HELP prints this message
 help:
@@ -247,11 +249,11 @@ help:
 	@echo "  BINS = $(BINS)"
 	@echo "  GOOS = $(GOOS)"
 	@echo "  GOARCH = $(GOARCH)"
-	@echo "  DOCKER_REGISTRY_ORG = $(DOCKER_REGISTRY_ORG)"
+	@echo "  DOCKER_REGISTRY = $(DOCKER_REGISTRY)"
 	@echo
 	@echo "TARGETS:"
-	@grep -E '^.*: *# *@HELP' $(MAKEFILE_LIST)    \
-	    | awk '                                   \
-	        BEGIN {FS = ": *# *@HELP"};           \
-	        { printf "  %-30s %s\n", $$1, $$2 };  \
+	@grep -hE '^.*: *# *@HELP' $(MAKEFILE_LIST) | sort  \
+	    | awk '                                         \
+	        BEGIN {FS = ": *# *@HELP"};                 \
+	        { printf "  %-30s %s\n", $$1, $$2 };        \
 	    '

@@ -168,6 +168,9 @@ $(foreach bin,$(BINS),$(eval                                                    
 # This is the target definition for all container-dotfiles.
 # These are used to track build state in hidden files.
 $(CONTAINER_DOTFILES): $(BUILD_DIRS)
+ifeq ($(GOOS),darwin)
+	$(error "Cannot make container on $(GOOS). Please use 'make container GOOS=linux'")
+endif
 	@docker build                                  \
 	    --build-arg BASE_IMAGE=$(BASE_IMAGE)       \
 	    --build-arg ARCH=$(GOARCH)                 \

@@ -36,7 +36,7 @@ GIT_VERSION := $(shell git describe --tags --always --dirty)
 TAG := $(GIT_VERSION)__$(GOOS)_$(GOARCH)
 
 # Docker related.
-BASE_IMAGE ?= gcr.io/distroless/static
+BASE_IMAGE ?= alpine:3
 BUILD_IMAGE ?= golang:1.14-buster
 
 # Other constants.
